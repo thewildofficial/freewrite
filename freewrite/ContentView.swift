@@ -142,50 +142,79 @@ struct ContentView: View {
     
     // Function to load existing entries
     private func loadExistingEntries() {
-        let directory = getDocumentsDirectory()
-        
-        do {
+        guard let directory = getDocumentsDirectory() else {
+            // This case handles when a custom path was set but invalid.
+            // getDocumentsDirectory already printed an error and reset the path.
+            // We should attempt to load again using the now-reset default path.
+            print("Invalid custom directory detected. Attempting to load from default directory.")
+            // Directly call getDocumentsDirectory again, which will now return the default path
+            guard let defaultDirectory = getDocumentsDirectory() else {
+                 // If even the default directory fails (highly unlikely but possible), bail out.
+                 print("FATAL: Could not access default documents directory.")
+                 // Optionally show an alert to the user here.
+                 entries = [] // Ensure entries is empty
+                 createNewEntry() // Create a fallback entry
+                 return
+            }
+            // Proceed with loading from the default directory
+            loadEntries(from: defaultDirectory)
+            return // Exit after handling the invalid custom path case
+        }
+
+        // Proceed with loading from the valid directory (custom or default)
+        loadEntries(from: directory)
+    }
+
+    // Helper function to perform the actual loading from a given directory
+    private func loadEntries(from directory: URL) {
+         do {
             let fileURLs = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles)
-            
-            let sortedFileURLs = try fileURLs.sorted {
+
+            // Filter out directories, just in case
+            let filteredFileURLs = fileURLs.filter { !$0.hasDirectoryPath }
+
+            let sortedFileURLs = try filteredFileURLs.sorted {
                 let date1 = try $0.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date.distantPast
                 let date2 = try $1.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date.distantPast
                 return date1 > date2 // Sort descending by creation date
             }
-            
-            entries = sortedFileURLs.compactMap { url in
-                let filename = url.lastPathComponent
-                
-                // Extract UUID and Date from filename
-                let components = filename.replacingOccurrences(of: ".md", with: "").components(separatedBy: "]-")
-                // Perform string manipulation first
-                let idStringComponent = components.indices.contains(0) ? components[0].replacingOccurrences(of: "[", with: "").trimmingCharacters(in: .whitespaces) : ""
-                let dateStringComponent = components.indices.contains(1) ? components[1].replacingOccurrences(of: "[", with: "").trimmingCharacters(in: .whitespaces) : ""
 
-                guard components.count == 2, // Ensure we have two components
-                      !idStringComponent.isEmpty, // Ensure extracted strings are not empty
-                      !dateStringComponent.isEmpty,
-                      let id = UUID(uuidString: idStringComponent) // Now bind the optional UUID
-                      else {
-                    print("Could not parse filename or components: \(filename)")
+            entries = sortedFileURLs.compactMap { url -> HumanEntry? in // Explicit return type
+                let filename = url.lastPathComponent
+
+                // Extract UUID and Date from filename
+                // Example: "[UUID]-[YYYY-MM-DD-HH-MM-SS].md"
+                let baseName = filename.replacingOccurrences(of: ".md", with: "")
+                let components = baseName.components(separatedBy: "]-[") // Split between the brackets
+
+                guard components.count == 2 else {
+                    // print("Could not split filename into 2 components: \(filename)")
                     return nil
                 }
-                // Use dateStringComponent which is now guaranteed non-empty
-                let dateString = dateStringComponent
+
+                let idString = components[0].replacingOccurrences(of: "[", with: "") // Remove leading '['
+                let dateString = components[1].replacingOccurrences(of: "]", with: "") // Remove trailing ']'
+
+                guard !idString.isEmpty,
+                      !dateString.isEmpty,
+                      let id = UUID(uuidString: idString)
+                      else {
+                    // print("Could not parse UUID ('\(idString)') or date ('\(dateString)') from filename: \(filename)")
+                    return nil
+                }
 
                 // Format date for display
                 let inputFormatter = DateFormatter()
                 inputFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-                // Use the non-optional dateString derived above
                 guard let date = inputFormatter.date(from: dateString) else {
-                    print("Could not parse date from filename: \(dateString)")
+                    // print("Could not parse date string '\(dateString)' for: \(filename)")
                     return nil
                 }
-                
+
                 let outputFormatter = DateFormatter()
                 outputFormatter.dateFormat = "MMM d"
                 let displayDate = outputFormatter.string(from: date)
-                
+
                 // Generate initial preview text (will be updated)
                 var preview = ""
                 do {
@@ -195,12 +224,12 @@ struct ContentView: View {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     preview = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
                 } catch {
-                    print("Error reading file for preview: \(error)")
+                    // print("Error reading file for preview: \(error)")
                 }
-                
+
                 return HumanEntry(id: id, date: displayDate, filename: filename, previewText: preview)
             }
-            
+
             // Select the first entry if available, otherwise create a new one
             if let firstEntry = entries.first {
                 selectedEntryId = firstEntry.id
@@ -208,7 +237,7 @@ struct ContentView: View {
             } else {
                 createNewEntry() // Creates the first entry with welcome message
             }
-            
+
             // Randomize placeholder for subsequent new entries
             placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
             
@@ -220,23 +249,27 @@ struct ContentView: View {
             }
         }
     }
-    
-    // Function to get documents directory (handles custom path)
-    private func getDocumentsDirectory() -> URL {
-        if let customPath = customDirectoryPath, let url = URL(string: "file://\(customPath)"), fileManager.fileExists(atPath: url.path) {
-             // Ensure the custom directory exists before returning it
+
+    // Function to get documents directory (handles custom path). Returns nil if custom path is set but invalid.
+    private func getDocumentsDirectory() -> URL? {
+        if let customPath = customDirectoryPath {
+            // Validate the custom path
+            let url = URL(fileURLWithPath: customPath) // Use fileURLWithPath for robustness
             var isDir: ObjCBool = false
             if fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                // Custom path is valid and is a directory
                 return url
             } else {
+                // Custom path is invalid (doesn't exist or isn't a directory)
                 print("Custom directory path is invalid or not a directory: \(customPath). Resetting to default.")
-                // Reset to default if custom path is invalid
-                resetToDefaultDirectory()
-                // Fall through to return the default directory
+                // Reset the stored path immediately
+                customDirectoryPath = nil
+                // Return nil to signal the caller that the custom path failed validation
+                return nil
             }
         }
-        
-        // Default directory logic
+
+        // No custom path set, use the default directory logic
         let defaultDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
         
         // Create Freewrite directory if it doesn't exist
@@ -275,8 +308,13 @@ struct ContentView: View {
     private func resetToDefaultDirectory() {
         customDirectoryPath = nil
         print("Reset to default directory.")
-        // Reload entries from the default directory
-        loadExistingEntries()
+        // Reload entries from the default directory AFTER resetting the path
+        // This avoids the potential recursion/double-load issue
+        // Use DispatchQueue.main.async to ensure UI updates happen on the main thread
+        // and avoid potential issues if called during view updates.
+        DispatchQueue.main.async {
+            self.loadExistingEntries()
+        }
     }
 
     var body: some View {
@@ -574,10 +612,20 @@ struct ContentView: View {
                         VStack(spacing: 0) {
                             // Header with folder selection
                             Button(action: {
-                                if customDirectoryPath != nil {
-                                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                                // Safely unwrap the directory URL before using its path
+                                if let directoryURL = getDocumentsDirectory() {
+                                    if customDirectoryPath != nil {
+                                        // If a custom path is set (and valid), open it in Finder
+                                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
+                                    } else {
+                                        // If using the default path, allow selecting a custom one
+                                        selectCustomDirectory()
+                                    }
                                 } else {
-                                    selectCustomDirectory()
+                                     // This case should ideally not happen if logic is correct,
+                                     // but as a fallback, allow selecting a custom directory.
+                                     print("Error: Could not get directory URL for Finder action.")
+                                     selectCustomDirectory()
                                 }
                             }) {
                                 HStack {
@@ -590,7 +638,8 @@ struct ContentView: View {
                                                 .font(.system(size: 10))
                                                 .foregroundColor(isHoveringHistory ? .black : .secondary)
                                         }
-                                        Text(getDocumentsDirectory().path)
+                                        // Display the current directory path, handling potential nil from initial load failure
+                                        Text(getDocumentsDirectory()?.path ?? "Default Location")
                                             .font(.system(size: 10))
                                             .foregroundColor(.secondary)
                                             .lineLimit(1)
@@ -683,11 +732,12 @@ struct ContentView: View {
                                                 RoundedRectangle(cornerRadius: 4)
                                                     .fill(backgroundColor(for: entry))
                                             )
+                                            .padding(.horizontal, 4) // Add slight horizontal padding for the background highlight
                                         }
                                         .buttonStyle(PlainButtonStyle())
-                                        .contentShape(Rectangle())
+                                        .contentShape(Rectangle()) // Ensure the whole area is clickable
                                         .onHover { hovering in
-                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                            withAnimation(.easeInOut(duration: 0.1)) { // Faster hover animation
                                                 hoveredEntryId = hovering ? entry.id : nil
                                             }
                                         }
@@ -838,19 +888,32 @@ struct ContentView: View {
 
     private func backgroundColor(for entry: HumanEntry) -> Color {
         if entry.id == selectedEntryId {
-            return Color.gray.opacity(0.1)  // More subtle selection highlight
+            return Color.gray.opacity(0.15) // Slightly stronger selection highlight
         } else if entry.id == hoveredEntryId {
-            return Color.gray.opacity(0.05)  // Even more subtle hover state
+            return Color.gray.opacity(0.08) // Slightly stronger hover state
         } else {
             return Color.clear
         }
     }
 
     private func updatePreviewText(for entry: HumanEntry) {
-        let documentsDirectory = getDocumentsDirectory()
+        // Use the currently determined valid directory
+        guard let documentsDirectory = getDocumentsDirectory() else {
+             print("Cannot update preview text: Invalid directory.")
+             return
+        }
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
 
         do {
+            // Check if file exists before trying to read
+            guard fileManager.fileExists(atPath: fileURL.path) else {
+                print("Preview update skipped: File does not exist at \(fileURL.path)")
+                // Optionally remove the entry from the list if the file is gone
+                // if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                //     entries.remove(at: index)
+                // }
+                return
+            }
             let content = try String(contentsOf: fileURL, encoding: .utf8)
             let preview = content
                 .replacingOccurrences(of: "\n", with: " ")
@@ -867,7 +930,11 @@ struct ContentView: View {
     }
 
     private func saveEntry(entry: HumanEntry) {
-        let documentsDirectory = getDocumentsDirectory()
+        // Use the currently determined valid directory
+        guard let documentsDirectory = getDocumentsDirectory() else {
+             print("Cannot save entry: Invalid directory.")
+             return // Or handle error appropriately
+        }
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
 
         // Ensure text always has the leading newlines before saving
@@ -894,7 +961,12 @@ struct ContentView: View {
     }
 
     private func loadEntry(entry: HumanEntry) {
-        let documentsDirectory = getDocumentsDirectory()
+        // Use the currently determined valid directory
+        guard let documentsDirectory = getDocumentsDirectory() else {
+             print("Cannot load entry: Invalid directory.")
+             text = "\n\nError: Could not access storage location." // Provide feedback
+             return
+        }
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
 
         do {
@@ -972,11 +1044,34 @@ struct ContentView: View {
     }
 
     private func deleteEntry(entry: HumanEntry) {
-        // Delete the file from the filesystem
-        let documentsDirectory = getDocumentsDirectory()
+        // Use the currently determined valid directory
+        guard let documentsDirectory = getDocumentsDirectory() else {
+             print("Cannot delete entry: Invalid directory.")
+             // Optionally show an alert to the user
+             return
+        }
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
 
         do {
+            // Check if file exists before trying to delete
+            guard fileManager.fileExists(atPath: fileURL.path) else {
+                 print("Deletion skipped: File does not exist at \(fileURL.path)")
+                 // Remove the entry from the list anyway if it's somehow still there
+                 if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                     entries.remove(at: index)
+                     // Handle selection change if needed
+                     if selectedEntryId == entry.id {
+                         if let firstEntry = entries.first {
+                             selectedEntryId = firstEntry.id
+                             loadEntry(entry: firstEntry)
+                         } else {
+                             createNewEntry()
+                         }
+                     }
+                 }
+                 return
+            }
+
             try fileManager.removeItem(at: fileURL)
             print("Successfully deleted file: \(entry.filename)")
 
