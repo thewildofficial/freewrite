@@ -86,6 +86,8 @@ struct ContentView: View {
     @State private var isHoveringZen = false
     @State private var isHoveringRandomFont = false // Add state for random font button hover
     @State private var fontSearchText: String = "" // State for font search field
+    @State private var showingTimerPopover = false // State for timer popover
+    @State private var customTimeInput: String = "" // State for custom timer input
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
 
@@ -346,39 +348,86 @@ struct ContentView: View {
 
                         // Bottom Navigation Bar (Conditional Opacity)
                         HStack {
-                            // Timer display and control
-                            Button(action: {
-                                timerIsRunning.toggle()
-                                if timerIsRunning {
-                                    // Start timer - maybe reset timeRemaining here if desired
-                                    // timeRemaining = 900
-                                    withAnimation(.easeIn(duration: 1.0)) {
-                                        bottomNavOpacity = 0.0 // Fade out when timer starts
+                            // Timer display and control (Play/Pause Button + Time Display Button)
+                            HStack(spacing: 10) { // Group Play/Pause and Time
+                                // Play/Pause Button
+                                Button(action: {
+                                    timerIsRunning.toggle()
+                                    if timerIsRunning {
+                                        // Start timer
+                                        withAnimation(.easeIn(duration: 1.0)) {
+                                            bottomNavOpacity = 0.0 // Fade out when timer starts
+                                        }
+                                    } else {
+                                        // Stop timer
+                                        withAnimation(.easeOut(duration: 0.2)) {
+                                            bottomNavOpacity = 1.0 // Fade in when timer stops
+                                        }
                                     }
-                                } else {
-                                    // Stop timer
-                                    withAnimation(.easeOut(duration: 0.2)) {
-                                        bottomNavOpacity = 1.0 // Fade in when timer stops
-                                    }
-                                }
-                            }) {
-                                HStack(spacing: 4) {
+                                }) {
                                     Image(systemName: timerIsRunning ? "pause.fill" : "play.fill")
+                                        .font(.system(size: 13))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(isHoveringTimer ? .black : .gray)
+                                .onHover { hovering in
+                                    isHoveringTimer = hovering // Track hover specifically for play/pause
+                                    isHoveringBottomNav = hovering // Indicate bottom nav hover
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+
+                                // Time Display Button (triggers popover)
+                                Button(action: {
+                                    showingTimerPopover = true
+                                }) {
                                     Text(formattedTime)
+                                        .font(.system(size: 13))
                                 }
-                                .font(.system(size: 13))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringTimer ? .black : .gray)
-                            .onHover { hovering in
-                                isHoveringTimer = hovering
-                                isHoveringBottomNav = hovering // Indicate bottom nav hover
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
+                                .buttonStyle(.plain)
+                                .foregroundColor(isHoveringClock ? .black : .gray) // Use isHoveringClock for time display hover
+                                .onHover { hovering in
+                                    isHoveringClock = hovering // Use separate state for time display hover
+                                    isHoveringBottomNav = hovering // Indicate bottom nav hover
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                                 }
-                            }
+                                .popover(isPresented: $showingTimerPopover, arrowEdge: .bottom) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Set Timer (minutes)").font(.caption).foregroundColor(.secondary)
+                                        Divider()
+                                        // Preset Buttons
+                                        HStack {
+                                            ForEach([5, 10, 15, 30, 60], id: \.self) { minutes in
+                                                Button("\(minutes)") {
+                                                    setTimer(minutes: minutes)
+                                                }
+                                                .buttonStyle(.bordered)
+                                            }
+                                        }
+                                        // Custom Input
+                                        HStack {
+                                            TextField("Custom", text: $customTimeInput)
+                                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                                .frame(width: 60)
+                                                .onChange(of: customTimeInput) { newValue in
+                                                    // Allow only digits
+                                                    let filtered = newValue.filter { "0123456789".contains($0) }
+                                                    if filtered != newValue {
+                                                        customTimeInput = filtered
+                                                    }
+                                                }
+
+                                            Button("Set") {
+                                                if let minutes = Int(customTimeInput), minutes > 0 {
+                                                    setTimer(minutes: minutes)
+                                                }
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .disabled(customTimeInput.isEmpty || Int(customTimeInput) == nil || Int(customTimeInput)! <= 0)
+                                        }
+                                    }
+                                    .padding()
+                                } // End popover
+                            } // End HStack for Play/Pause + Time
 
                             Text("•")
                                 .foregroundColor(.gray)
@@ -873,6 +922,18 @@ struct ContentView: View {
             isFullscreen = false
         }
     } // End body var
+
+    // Function to set the timer
+    private func setTimer(minutes: Int) {
+        timeRemaining = minutes * 60
+        timerIsRunning = false // Stop timer when setting a new time
+        customTimeInput = "" // Clear custom input field
+        showingTimerPopover = false // Close popover
+        // Ensure bottom bar is visible when timer is reset/stopped
+        withAnimation(.easeOut(duration: 0.2)) {
+            bottomNavOpacity = 1.0
+        }
+    }
 
     // Computed property for filtered fonts
     private var filteredFonts: [String] {
