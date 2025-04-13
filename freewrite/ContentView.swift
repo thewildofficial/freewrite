@@ -85,6 +85,7 @@ struct ContentView: View {
     @State private var previousLines: [String] = []
     @State private var isHoveringZen = false
     @State private var isHoveringRandomFont = false // Add state for random font button hover
+    @State private var fontSearchText: String = "" // State for font search field
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
 
@@ -344,14 +345,35 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
 
-                            // Font Selector Dropdown
+                            // Font Selector Dropdown with Search
                             Menu {
-                                ForEach(standardFonts, id: \.self) { font in
-                                    Button(action: { selectedFont = font }) {
-                                        Text(font)
-                                            .font(.custom(font, size: 14)) // Preview font in menu
+                                // Search Field
+                                TextField("Search Fonts", text: $fontSearchText)
+                                    .textFieldStyle(.plain)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                                    .cornerRadius(4)
+                                    .padding(.bottom, 4) // Add some space below search
+
+                                Divider() // Separate search from list
+
+                                // Filtered Font List
+                                ScrollView { // Make the list scrollable if long
+                                    ForEach(filteredFonts, id: \.self) { font in
+                                        Button(action: {
+                                            selectedFont = font
+                                            fontSearchText = "" // Clear search on selection
+                                        }) {
+                                            Text(font)
+                                                .font(.custom(font, size: 14)) // Preview font in menu
+                                                .frame(maxWidth: .infinity, alignment: .leading) // Ensure text aligns left
+                                        }
+                                        .buttonStyle(.plain) // Use plain style for menu items
                                     }
                                 }
+                                .frame(maxHeight: 200) // Limit the height of the scrollable list
+
                             } label: {
                                 Text(selectedFont)
                                     .font(.system(size: 13))
@@ -801,6 +823,16 @@ struct ContentView: View {
             isFullscreen = false
         }
     } // End body var
+
+    // Computed property for filtered fonts
+    private var filteredFonts: [String] {
+        if fontSearchText.isEmpty {
+            return availableFonts.sorted() // Show all available fonts sorted if search is empty
+        } else {
+            // Filter available fonts based on search text (case-insensitive)
+            return availableFonts.filter { $0.localizedCaseInsensitiveContains(fontSearchText) }.sorted()
+        }
+    }
 
     // MARK: - Helper Functions
 
