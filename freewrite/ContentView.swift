@@ -84,10 +84,13 @@ struct ContentView: View {
     @State private var currentLine = ""
     @State private var previousLines: [String] = []
     @State private var isHoveringZen = false
+    @State private var isHoveringRandomFont = false // Add state for random font button hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
-    
+
+    // Get all available font families from the system
     let availableFonts = NSFontManager.shared.availableFontFamilies
+    // Keep standardFonts for the dropdown
     let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
     let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
     let placeholderOptions = [
@@ -392,6 +395,30 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
+
+                            Text("•") // Separator before Random Font
+                                .foregroundColor(.gray)
+
+                            // Random Font Button
+                            Button(action: {
+                                // Select a random font from all available system fonts
+                                selectedFont = availableFonts.randomElement() ?? ".AppleSystemUIFont" // Default to system font if random fails
+                            }) {
+                                Image(systemName: "shuffle") // Use shuffle icon
+                                    .font(.system(size: 13))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringRandomFont ? .black : .gray)
+                            .onHover { hovering in
+                                isHoveringRandomFont = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .help("Select Random Font") // Add tooltip
 
                             Spacer() // Pushes elements left and right
 
