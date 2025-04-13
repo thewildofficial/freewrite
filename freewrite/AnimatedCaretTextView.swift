@@ -36,7 +36,7 @@ struct AnimatedCaretTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false // Hide vertical scroll bar
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = .clear // Ensure scroll view background is clear
 
