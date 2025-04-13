@@ -274,9 +274,9 @@ struct ContentView: View {
         // Reload entries from the default directory
         loadExistingEntries()
     }
-    
+
     var body: some View {
-        ZStack {
+        ZStack { // Removed alignment: .leading
             // Main Content Area (Standard View or Zen Mode)
             if !isZenMode {
                 HStack(spacing: 0) {
@@ -301,7 +301,7 @@ struct ContentView: View {
                             }
                             // Handle bottom nav fade-out logic if needed here or keep in .onHover
                         }
-                        
+
                         // Bottom Navigation Bar (Conditional Opacity)
                         HStack {
                             // Timer display and control
@@ -337,10 +337,10 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             // Font Selector Dropdown
                             Menu {
                                 ForEach(standardFonts, id: \.self) { font in
@@ -365,10 +365,10 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             // Font Size Selector Dropdown
                             Menu {
                                 ForEach(fontSizes, id: \.self) { size in
@@ -392,9 +392,9 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Spacer() // Pushes elements left and right
-                            
+
                             // AI Chat Button
                             Button(action: {
                                 showingChatMenu = true
@@ -426,10 +426,10 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             // Zen Mode Button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -450,10 +450,10 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             Button(action: {
                                 createNewEntry()
                             }) {
@@ -471,10 +471,10 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             // Version history button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -501,164 +501,166 @@ struct ContentView: View {
                             isHoveringBottomNav = hovering
                         }
                     }
-                    .padding()
-                    .background(Color.white)
-                    .opacity(bottomNavOpacity)
-                    .onHover { hovering in
-                        isHoveringBottomNav = hovering
-                        if hovering {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                bottomNavOpacity = 1.0
-                            }
-                        } else if timerIsRunning {
-                            withAnimation(.easeIn(duration: 1.0)) {
-                                bottomNavOpacity = 0.0
-                            }
-                        } // End VStack for bottom bar content
-                    } // End ZStack for main content area
-                } // End HStack for standard view content + sidebar
-
-                // Right sidebar (only shown if not in Zen Mode)
-                if showingSidebar {
-                    Divider()
-
-                    VStack(spacing: 0) {
-                        // Header with folder selection
-                        Button(action: {
-                            if customDirectoryPath != nil {
-                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
-                            } else {
-                                selectCustomDirectory()
-                            }
-                        }) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 4) {
-                                        Text("History")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(isHoveringHistory ? .black : .secondary)
-                                        Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(isHoveringHistory ? .black : .secondary)
-                                    }
-                                    Text(getDocumentsDirectory().path)
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-
-                                // Add folder icon button
-                                if customDirectoryPath != nil {
-                                    Button(action: resetToDefaultDirectory) {
-                                        Image(systemName: "folder.badge.minus")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Reset to default location")
-                                } else {
-                                    Button(action: selectCustomDirectory) {
-                                        Image(systemName: "folder.badge.plus")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Choose custom folder location")
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding()
+                        .background(Color.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure editor fills space
+                        .opacity(bottomNavOpacity)
                         .onHover { hovering in
-                            isHoveringHistory = hovering
-                        }
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    bottomNavOpacity = 1.0
+                                }
+                            } else if timerIsRunning {
+                                withAnimation(.easeIn(duration: 1.0)) {
+                                    bottomNavOpacity = 0.0
+                                }
+                            } // End VStack for bottom bar content
+                        } // End ZStack for main content area
 
-                        Divider()
+                    // Sidebar (moved back to the right)
+                    if showingSidebar {
+                        // Divider() // Removed this divider which appeared between content and sidebar
 
-                        // Entries List
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(entries) { entry in
-                                    Button(action: {
-                                        if selectedEntryId != entry.id {
-                                            // Save current entry before switching
-                                            if let currentId = selectedEntryId,
-                                               let currentEntry = entries.first(where: { $0.id == currentId }) {
-                                                saveEntry(entry: currentEntry)
-                                            }
-
-                                            selectedEntryId = entry.id
-                                            loadEntry(entry: entry)
+                        VStack(spacing: 0) {
+                            // Header with folder selection
+                            Button(action: {
+                                if customDirectoryPath != nil {
+                                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                                } else {
+                                    selectCustomDirectory()
+                                }
+                            }) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack(spacing: 4) {
+                                            Text("History")
+                                                .font(.system(size: 13))
+                                                .foregroundColor(isHoveringHistory ? .black : .secondary)
+                                            Image(systemName: "arrow.up.right")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(isHoveringHistory ? .black : .secondary)
                                         }
-                                    }) {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text(entry.previewText)
-                                                    .font(.system(size: 13))
-                                                    .lineLimit(1)
-                                                    .foregroundColor(.primary)
-                                                Text(entry.date)
-                                                    .font(.system(size: 12))
-                                                    .foregroundColor(.secondary)
-                                            }
-                                            Spacer()
+                                        Text(getDocumentsDirectory().path)
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
 
-                                            // Trash icon that appears on hover
-                                            if hoveredEntryId == entry.id {
-                                                Button(action: {
-                                                    deleteEntry(entry: entry)
-                                                }) {
-                                                    Image(systemName: "trash")
-                                                        .font(.system(size: 11))
-                                                        .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                                }
-                                                .buttonStyle(.plain)
-                                                .onHover { hovering in
-                                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                                        hoveredTrashId = hovering ? entry.id : nil
-                                                    }
-                                                    if hovering {
-                                                        NSCursor.pointingHand.push()
-                                                    } else {
-                                                        NSCursor.pop()
-                                                    }
-                                                }
-                                            }
+                                    // Add folder icon button
+                                    if customDirectoryPath != nil {
+                                        Button(action: resetToDefaultDirectory) {
+                                            Image(systemName: "folder.badge.minus")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.secondary)
                                         }
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .fill(backgroundColor(for: entry))
-                                        )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                    .contentShape(Rectangle())
-                                    .onHover { hovering in
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            hoveredEntryId = hovering ? entry.id : nil
+                                        .buttonStyle(.plain)
+                                        .help("Reset to default location")
+                                    } else {
+                                        Button(action: selectCustomDirectory) {
+                                            Image(systemName: "folder.badge.plus")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.secondary)
                                         }
-                                    }
-                                    .onAppear {
-                                        NSCursor.pop()  // Reset cursor when button appears
-                                    }
-                                    .help("Click to select this entry")  // Add tooltip
-
-                                    if entry.id != entries.last?.id {
-                                        Divider()
+                                        .buttonStyle(.plain)
+                                        .help("Choose custom folder location")
                                     }
                                 }
                             }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .onHover { hovering in
+                                isHoveringHistory = hovering
+                            }
+
+                            Divider()
+
+                            // Entries List
+                            ScrollView {
+                                LazyVStack(spacing: 0) {
+                                    ForEach(entries) { entry in
+                                        Button(action: {
+                                            if selectedEntryId != entry.id {
+                                                // Save current entry before switching
+                                                if let currentId = selectedEntryId,
+                                                   let currentEntry = entries.first(where: { $0.id == currentId }) {
+                                                    saveEntry(entry: currentEntry)
+                                                }
+
+                                                selectedEntryId = entry.id
+                                                loadEntry(entry: entry)
+                                            }
+                                        }) {
+                                            HStack {
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    Text(entry.previewText)
+                                                        .font(.system(size: 13))
+                                                        .lineLimit(1)
+                                                        .foregroundColor(.primary)
+                                                    Text(entry.date)
+                                                        .font(.system(size: 12))
+                                                        .foregroundColor(.secondary)
+                                                }
+                                                Spacer()
+
+                                                // Trash icon that appears on hover
+                                                if hoveredEntryId == entry.id {
+                                                    Button(action: {
+                                                        deleteEntry(entry: entry)
+                                                    }) {
+                                                        Image(systemName: "trash")
+                                                            .font(.system(size: 11))
+                                                            .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .onHover { hovering in
+                                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                                            hoveredTrashId = hovering ? entry.id : nil
+                                                        }
+                                                        if hovering {
+                                                            NSCursor.pointingHand.push()
+                                                        } else {
+                                                            NSCursor.pop()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(backgroundColor(for: entry))
+                                            )
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                        .contentShape(Rectangle())
+                                        .onHover { hovering in
+                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                hoveredEntryId = hovering ? entry.id : nil
+                                            }
+                                        }
+                                        .onAppear {
+                                            NSCursor.pop()  // Reset cursor when button appears
+                                        }
+                                        .help("Click to select this entry")  // Add tooltip
+
+                                        if entry.id != entries.last?.id {
+                                            Divider()
+                                        }
+                                    }
+                                }
+                            }
+                            .scrollIndicators(.never)
                         }
-                        .scrollIndicators(.never)
-                    }
-                    .frame(width: 200)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .transition(.move(edge: .trailing)) // Add transition for sidebar
-                } // End if showingSidebar
+                        .frame(width: 200)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .transition(.move(edge: .trailing)) // Ensure transition is from the right
+                    } // End if showingSidebar
+                } // End HStack for standard view content + sidebar
+                .frame(maxWidth: .infinity, maxHeight: .infinity) // Make HStack fill the space
             } // End if !isZenMode
 
             // Zen Mode View Overlay
@@ -676,6 +678,7 @@ struct ContentView: View {
                 .transition(.opacity.combined(with: .scale(scale: 1.05))) // Transition for Zen view
             }
         } // End Top level ZStack
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills the window
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.3), value: isZenMode) // Animate Zen Mode changes
         .animation(.easeInOut(duration: 0.2), value: showingSidebar) // Keep sidebar animation separate
