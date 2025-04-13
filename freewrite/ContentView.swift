@@ -436,7 +436,7 @@ struct ContentView: View {
                                     isZenMode.toggle()
                                 }
                             }) {
-                                Image(systemName: "moon.stars") // Changed Zen mode icon
+                                Image(systemName: "infinity") // Changed Zen mode icon to infinity
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
