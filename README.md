@@ -1,4 +1,4 @@
-c# Freewrite
+# Freewrite
 
 A minimalist, distraction-free writing app for macOS that helps you focus on your thoughts.
 
@@ -14,12 +14,13 @@ A minimalist, distraction-free writing app for macOS that helps you focus on you
 - 🤖 **AI Integration** - One-click analysis of your writing with ChatGPT or Claude
 - 📂 **Version History** - Browse and manage your past writing sessions
 - 🎯 **Custom Save Location** - Choose where to store your writing files
+- 🌗 **Perfectly Synced Theme Transitions** - When you toggle between light and dark mode, both the window and the text area update their appearance at the exact same time for a smooth, unified experience.
 
 ## Download
 
 Since this is a fork, you'll have to build it yourself :)
 
-if there's enough demand, i'll set up a release version
+If there's enough demand, I'll set up a release version.
 
 ## Building from Source
 
@@ -64,6 +65,8 @@ Contributions are welcome! Here's how you can help:
 6. Open a Pull Request
 
 Please ensure your PR description clearly describes the changes and their benefits.
+
+Make changes on a PR and I'll run on my end and then build a new version.
 
 ## License
 

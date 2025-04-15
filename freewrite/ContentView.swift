@@ -8,6 +8,9 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
+import PDFKit
+import CoreGraphics
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -73,6 +76,7 @@ struct ContentView: View {
     @State private var chatMenuAnchor: CGPoint = .zero
     @State private var showingSidebar = false  // Add this state variable
     @State private var hoveredTrashId: UUID? = nil
+    @State private var hoveredExportId: UUID? = nil
     @State private var placeholderText: String = ""  // Add this line
     @State private var isHoveringNewEntry = false
     @State private var isHoveringClock = false
@@ -88,6 +92,9 @@ struct ContentView: View {
     @State private var fontSearchText: String = "" // State for font search field
     @State private var showingTimerPopover = false // State for timer popover
     @State private var customTimeInput: String = "" // State for custom timer input
+    @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+    @EnvironmentObject var themeManager: ThemeManager
+    
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
 
@@ -142,216 +149,210 @@ struct ContentView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
     
-    // Function to load existing entries
-    private func loadExistingEntries() {
-        guard let directory = getDocumentsDirectory() else {
-            // This case handles when a custom path was set but invalid.
-            // getDocumentsDirectory already printed an error and reset the path.
-            // We should attempt to load again using the now-reset default path.
-            print("Invalid custom directory detected. Attempting to load from default directory.")
-            // Directly call getDocumentsDirectory again, which will now return the default path
-            guard let defaultDirectory = getDocumentsDirectory() else {
-                 // If even the default directory fails (highly unlikely but possible), bail out.
-                 print("FATAL: Could not access default documents directory.")
-                 // Optionally show an alert to the user here.
-                 entries = [] // Ensure entries is empty
-                 createNewEntry() // Create a fallback entry
-                 return
-            }
-            // Proceed with loading from the default directory
-            loadEntries(from: defaultDirectory)
-            return // Exit after handling the invalid custom path case
-        }
-
-        // Proceed with loading from the valid directory (custom or default)
-        loadEntries(from: directory)
-    }
-
-    // Helper function to perform the actual loading from a given directory
-    private func loadEntries(from directory: URL) {
-         do {
-            let fileURLs = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles)
-
-            // Filter out directories, just in case
-            let filteredFileURLs = fileURLs.filter { !$0.hasDirectoryPath }
-
-            let sortedFileURLs = try filteredFileURLs.sorted {
-                let date1 = try $0.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date.distantPast
-                let date2 = try $1.resourceValues(forKeys: [.creationDateKey]).creationDate ?? Date.distantPast
-                return date1 > date2 // Sort descending by creation date
-            }
-
-            entries = sortedFileURLs.compactMap { url -> HumanEntry? in // Explicit return type
-                let filename = url.lastPathComponent
-
-                // Extract UUID and Date from filename
-                // Example: "[UUID]-[YYYY-MM-DD-HH-MM-SS].md"
-                let baseName = filename.replacingOccurrences(of: ".md", with: "")
-                let components = baseName.components(separatedBy: "]-[") // Split between the brackets
-
-                guard components.count == 2 else {
-                    // print("Could not split filename into 2 components: \(filename)")
-                    return nil
-                }
-
-                let idString = components[0].replacingOccurrences(of: "[", with: "") // Remove leading '['
-                let dateString = components[1].replacingOccurrences(of: "]", with: "") // Remove trailing ']'
-
-                guard !idString.isEmpty,
-                      !dateString.isEmpty,
-                      let id = UUID(uuidString: idString)
-                      else {
-                    // print("Could not parse UUID ('\(idString)') or date ('\(dateString)') from filename: \(filename)")
-                    return nil
-                }
-
-                // Format date for display
-                let inputFormatter = DateFormatter()
-                inputFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-                guard let date = inputFormatter.date(from: dateString) else {
-                    // print("Could not parse date string '\(dateString)' for: \(filename)")
-                    return nil
-                }
-
-                let outputFormatter = DateFormatter()
-                outputFormatter.dateFormat = "MMM d"
-                let displayDate = outputFormatter.string(from: date)
-
-                // Generate initial preview text (will be updated)
-                var preview = ""
-                do {
-                    let content = try String(contentsOf: url, encoding: .utf8)
-                    preview = content
-                        .replacingOccurrences(of: "\n", with: " ")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    preview = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
-                } catch {
-                    // print("Error reading file for preview: \(error)")
-                }
-
-                return HumanEntry(id: id, date: displayDate, filename: filename, previewText: preview)
-            }
-
-            // Select the first entry if available, otherwise create a new one
-            if let firstEntry = entries.first {
-                selectedEntryId = firstEntry.id
-                loadEntry(entry: firstEntry)
-            } else {
-                createNewEntry() // Creates the first entry with welcome message
-            }
-
-            // Randomize placeholder for subsequent new entries
-            placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
-            
-        } catch {
-            print("Error loading entries: \(error)")
-            // If loading fails (e.g., first run, directory error), create a new entry
-            if entries.isEmpty {
-                createNewEntry()
-            }
-        }
-    }
-
-    // Function to get documents directory (handles custom path). Returns nil if custom path is set but invalid.
-    private func getDocumentsDirectory() -> URL? {
-        if let customPath = customDirectoryPath {
-            // Validate the custom path
-            let url = URL(fileURLWithPath: customPath) // Use fileURLWithPath for robustness
-            var isDir: ObjCBool = false
-            if fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                // Custom path is valid and is a directory
-                return url
-            } else {
-                // Custom path is invalid (doesn't exist or isn't a directory)
-                print("Custom directory path is invalid or not a directory: \(customPath). Resetting to default.")
-                // Reset the stored path immediately
-                customDirectoryPath = nil
-                // Return nil to signal the caller that the custom path failed validation
-                return nil
-            }
-        }
-
-        // No custom path set, use the default directory logic
-        let defaultDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
-        
-        // Create Freewrite directory if it doesn't exist
-        if !FileManager.default.fileExists(atPath: defaultDirectory.path) {
-            do {
-                try FileManager.default.createDirectory(at: defaultDirectory, withIntermediateDirectories: true)
-                print("Successfully created default Freewrite directory")
-            } catch {
-                print("Error creating default directory: \(error)")
-                // Handle error appropriately, maybe return a temporary directory or show an alert
-                // For now, just print the error and return the (potentially non-existent) path
-            }
-        }
-        return defaultDirectory
-    }
-    
-    // Function to select a custom directory
-    private func selectCustomDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Freewrite Folder"
-        
-        if panel.runModal() == .OK {
-            if let url = panel.url {
-                customDirectoryPath = url.path // Store the path
-                print("Custom directory selected: \(url.path)")
-                // Reload entries from the new directory
-                loadExistingEntries()
-            }
+    var timerColor: Color {
+        if timerIsRunning {
+            return isHoveringTimer ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor
+        } else {
+            return isHoveringTimer ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor.opacity(0.8)
         }
     }
     
-    // Function to reset to the default directory
-    private func resetToDefaultDirectory() {
-        customDirectoryPath = nil
-        print("Reset to default directory.")
-        // Reload entries from the default directory AFTER resetting the path
-        // This avoids the potential recursion/double-load issue
-        // Use DispatchQueue.main.async to ensure UI updates happen on the main thread
-        // and avoid potential issues if called during view updates.
-        DispatchQueue.main.async {
-            self.loadExistingEntries()
-        }
+    var lineHeight: CGFloat {
+        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let defaultLineHeight = getLineHeight(font: font)
+        return (fontSize * 1.5) - defaultLineHeight
     }
-
+    
+    var fontSizeButtonTitle: String {
+        return "\(Int(fontSize))px"
+    }
+    
+    var placeholderOffset: CGFloat {
+        // Instead of using calculated line height, use a simple offset
+        return fontSize / 2
+    }
+    
     var body: some View {
-        ZStack { // Removed alignment: .leading
-            // Main Content Area (Standard View or Zen Mode)
-            if !isZenMode {
-                HStack(spacing: 0) {
-                    // Main Editor Area
-                    ZStack(alignment: .bottom) {
-                        // Text Editor
-                        SmoothTextEditorView(
-                            text: $text,
-                            selectedFont: $selectedFont,
-                            fontSize: $fontSize,
-                            placeholder: placeholderText // Pass the placeholder
-                        )
-                        .padding(.horizontal, 80) // Add horizontal padding
-                        .padding(.top, 40)       // Add top padding
-                        .padding(.bottom, 80)    // Add bottom padding for the nav bar
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.white) // Ensure background is white
-                        .onChange(of: text) { _ in
-                            // Reset timer only if it's not running (prevents reset on every keystroke)
-                            if !timerIsRunning {
-                                // timeRemaining = 900 // Reset timer on text change if needed
-                            }
-                            // Handle bottom nav fade-out logic if needed here or keep in .onHover
+        let navHeight: CGFloat = 68
+        
+        HStack(spacing: 0) {
+            // Main content
+            ZStack {
+                // Use a Rectangle for the background to ensure full coverage and smooth animation
+                themeManager.currentTheme.backgroundColor
+                    .ignoresSafeArea()
+                    .animation(.easeInOut(duration: 0.3), value: themeManager.currentTheme)
+                
+                TextEditor(text: Binding(
+                    get: { text },
+                    set: { newValue in
+                        // Ensure the text always starts with two newlines
+                        if !newValue.hasPrefix("\n\n") {
+                            text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
+                        } else {
+                            text = newValue
                         }
-
-                        // Bottom Navigation Bar (Conditional Opacity)
-                        HStack {
-                            // Timer display and control (Play/Pause Button + Time Display Button)
-                            HStack(spacing: 10) { // Group Play/Pause and Time
-                                // Play/Pause Button
-                                Button(action: {
+                    }
+                ))
+                    .font(.custom(selectedFont, size: fontSize))
+                    .foregroundColor(themeManager.currentTheme.textColor)
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.never)
+                    .lineSpacing(lineHeight)
+                    .frame(maxWidth: 650)
+                    .id("\(selectedFont)-\(fontSize)-\(themeManager.currentTheme.rawValue)")
+                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                    .ignoresSafeArea()
+                    .overlay(
+                        ZStack(alignment: .topLeading) {
+                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(placeholderText)
+                                    .font(.custom(selectedFont, size: fontSize))
+                                    .foregroundColor(themeManager.currentTheme.secondaryTextColor.opacity(0.5))
+                                    .allowsHitTesting(false)
+                                    .offset(x: 5, y: placeholderOffset)
+                            }
+                        }, alignment: .topLeading
+                    )
+                
+                VStack {
+                    Spacer()
+                    HStack {
+                        // Font buttons (moved to left)
+                        HStack(spacing: 8) {
+                            Button(fontSizeButtonTitle) {
+                                if let currentIndex = fontSizes.firstIndex(of: fontSize) {
+                                    let nextIndex = (currentIndex + 1) % fontSizes.count
+                                    fontSize = fontSizes[nextIndex]
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringSize ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            .onHover { hovering in
+                                isHoveringSize = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button("Lato") {
+                                selectedFont = "Lato-Regular"
+                                currentRandomFont = ""
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(hoveredFont == "Lato" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            .onHover { hovering in
+                                hoveredFont = hovering ? "Lato" : nil
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button("Arial") {
+                                selectedFont = "Arial"
+                                currentRandomFont = ""
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(hoveredFont == "Arial" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            .onHover { hovering in
+                                hoveredFont = hovering ? "Arial" : nil
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button("System") {
+                                selectedFont = ".AppleSystemUIFont"
+                                currentRandomFont = ""
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(hoveredFont == "System" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            .onHover { hovering in
+                                hoveredFont = hovering ? "System" : nil
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button("Serif") {
+                                selectedFont = "Times New Roman"
+                                currentRandomFont = ""
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(hoveredFont == "Serif" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            .onHover { hovering in
+                                hoveredFont = hovering ? "Serif" : nil
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button(randomButtonTitle) {
+                                if let randomFont = availableFonts.randomElement() {
+                                    selectedFont = randomFont
+                                    currentRandomFont = randomFont
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(hoveredFont == "Random" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            .onHover { hovering in
+                                hoveredFont = hovering ? "Random" : nil
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .cornerRadius(6)
+                        .onHover { hovering in
+                            isHoveringBottomNav = hovering
+                        }
+                        
+                        Spacer()
+                        
+                        // Utility buttons (moved to right)
+                        HStack(spacing: 8) {
+                            Button(timerButtonTitle) {
+                                let now = Date()
+                                if let lastClick = lastClickTime,
+                                   now.timeIntervalSince(lastClick) < 0.3 {
+                                    timeRemaining = 900
+                                    timerIsRunning = false
+                                    lastClickTime = nil
+                                } else {
                                     timerIsRunning.toggle()
                                     if timerIsRunning {
                                         // Start timer
@@ -364,162 +365,12 @@ struct ContentView: View {
                                             bottomNavOpacity = 1.0 // Fade in when timer stops
                                         }
                                     }
-                                }) {
-                                    Image(systemName: timerIsRunning ? "pause.fill" : "play.fill")
-                                        .font(.system(size: 13))
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundColor(isHoveringTimer ? .black : .gray)
-                                .onHover { hovering in
-                                    isHoveringTimer = hovering // Track hover specifically for play/pause
-                                    isHoveringBottomNav = hovering // Indicate bottom nav hover
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
-
-                                // Time Display Button (triggers popover)
-                                Button(action: {
-                                    showingTimerPopover = true
-                                }) {
-                                    Text(formattedTime)
-                                        .font(.system(size: 13))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(isHoveringClock ? .black : .gray) // Use isHoveringClock for time display hover
-                                .onHover { hovering in
-                                    isHoveringClock = hovering // Use separate state for time display hover
-                                    isHoveringBottomNav = hovering // Indicate bottom nav hover
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
-                                .popover(isPresented: $showingTimerPopover, arrowEdge: .bottom) {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text("Set Timer (minutes)").font(.caption).foregroundColor(.secondary)
-                                        Divider()
-                                        // Preset Buttons
-                                        HStack {
-                                            ForEach([5, 10, 15, 30, 60], id: \.self) { minutes in
-                                                Button("\(minutes)") {
-                                                    setTimer(minutes: minutes)
-                                                }
-                                                .buttonStyle(.bordered)
-                                            }
-                                        }
-                                        // Custom Input
-                                        HStack {
-                                            TextField("Custom", text: $customTimeInput)
-                                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                                .frame(width: 60)
-                                                .onChange(of: customTimeInput) { newValue in
-                                                    // Allow only digits
-                                                    let filtered = newValue.filter { "0123456789".contains($0) }
-                                                    if filtered != newValue {
-                                                        customTimeInput = filtered
-                                                    }
-                                                }
-
-                                            Button("Set") {
-                                                if let minutes = Int(customTimeInput), minutes > 0 {
-                                                    setTimer(minutes: minutes)
-                                                }
-                                            }
-                                            .buttonStyle(.borderedProminent)
-                                            .disabled(customTimeInput.isEmpty || Int(customTimeInput) == nil || Int(customTimeInput)! <= 0)
-                                        }
-                                    }
-                                    .padding()
-                                } // End popover
-                            } // End HStack for Play/Pause + Time
-
-                            Text("•")
-                                .foregroundColor(.gray)
-
-                            // Font Selector Dropdown with Search
-                            Menu {
-                                // Search Field
-                                TextField("Search Fonts", text: $fontSearchText)
-                                    .textFieldStyle(.plain)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                                    .cornerRadius(4)
-                                    .padding(.bottom, 4) // Add some space below search
-
-                                Divider() // Separate search from list
-
-                                // Filtered Font List
-                                ScrollView { // Make the list scrollable if long
-                                    ForEach(filteredFonts, id: \.self) { font in
-                                        Button(action: {
-                                            selectedFont = font
-                                            fontSearchText = "" // Clear search on selection
-                                        }) {
-                                            Text(font)
-                                                .font(.custom(font, size: 14)) // Preview font in menu
-                                                .frame(maxWidth: .infinity, alignment: .leading) // Ensure text aligns left
-                                        }
-                                        .buttonStyle(.plain) // Use plain style for menu items
-                                    }
-                                }
-                                .frame(maxHeight: 200) // Limit the height of the scrollable list
-
-                            } label: {
-                                Text(selectedFont)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(hoveredFont == selectedFont ? .black : .gray) // Use hoveredFont state
-                            }
-                            .menuStyle(.borderlessButton)
-                            .fixedSize() // Prevent layout shifts
-                            .onHover { hovering in
-                                hoveredFont = hovering ? selectedFont : nil // Update hoveredFont
-                                isHoveringBottomNav = hovering // Indicate bottom nav hover
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-
-                            Text("•")
-                                .foregroundColor(.gray)
-
-                            // Font Size Selector Dropdown
-                            Menu {
-                                ForEach(fontSizes, id: \.self) { size in
-                                    Button(action: { fontSize = size }) {
-                                        Text("\(Int(size)) pt")
-                                    }
-                                }
-                            } label: {
-                                Text("\(Int(fontSize)) pt")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(isHoveringSize ? .black : .gray)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .fixedSize()
-                            .onHover { hovering in
-                                isHoveringSize = hovering
-                                isHoveringBottomNav = hovering // Indicate bottom nav hover
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-
-                            Text("•") // Separator before Random Font
-                                .foregroundColor(.gray)
-
-                            // Random Font Button
-                            Button(action: {
-                                // Select a random font from all available system fonts
-                                selectedFont = availableFonts.randomElement() ?? ".AppleSystemUIFont" // Default to system font if random fails
-                            }) {
-                                Image(systemName: "shuffle") // Use shuffle icon
-                                    .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringRandomFont ? .black : .gray)
+                            .foregroundColor(timerColor)
                             .onHover { hovering in
-                                isHoveringRandomFont = hovering
+                                isHoveringTimer = hovering
                                 isHoveringBottomNav = hovering
                                 if hovering {
                                     NSCursor.pointingHand.push()
@@ -527,32 +378,15 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            .help("Select Random Font") // Add tooltip
-
-                            Spacer() // Pushes elements left and right
-
-                            // AI Chat Button
-                            Button(action: {
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button("Chat") {
                                 showingChatMenu = true
-                            }) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringChat ? .black : .gray)
-                            .popover(isPresented: $showingChatMenu, arrowEdge: .bottom) {
-                                VStack {
-                                    Button("Open in ChatGPT") {
-                                        openChatGPT()
-                                        showingChatMenu = false
-                                    }
-                                    Button("Open in Claude") {
-                                        openClaude()
-                                        showingChatMenu = false
-                                    }
-                                }
-                                .padding()
-                            }
+                            .foregroundColor(isHoveringChat ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 isHoveringChat = hovering
                                 isHoveringBottomNav = hovering
@@ -562,23 +396,74 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-
-                            Text("•")
-                                .foregroundColor(.gray)
-
-                            // Zen Mode Button
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    isZenMode.toggle()
+                            .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                                if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
+                                    Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                        .frame(width: 250)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(themeManager.currentTheme.backgroundColor)
+                                        .cornerRadius(8)
+                                        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                                } else if text.count < 350 {
+                                    Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                        .frame(width: 250)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(themeManager.currentTheme.backgroundColor)
+                                        .cornerRadius(8)
+                                        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                                } else {
+                                    VStack(spacing: 0) {
+                                        Button(action: {
+                                            showingChatMenu = false
+                                            openChatGPT()
+                                        }) {
+                                            Text("ChatGPT")
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 8)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                        
+                                        Divider()
+                                        
+                                        Button(action: {
+                                            showingChatMenu = false
+                                            openClaude()
+                                        }) {
+                                            Text("Claude")
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 8)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                    }
+                                    .frame(width: 120)
+                                    .background(themeManager.currentTheme.backgroundColor)
+                                    .cornerRadius(8)
+                                    .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 }
-                            }) {
-                                Image(systemName: "infinity") // Changed Zen mode icon to infinity
-                                    .font(.system(size: 13))
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            Button(isFullscreen ? "Minimize" : "Fullscreen") {
+                                if let window = NSApplication.shared.windows.first {
+                                    window.toggleFullScreen(nil)
+                                }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringZen ? .black : .gray)
+                            .foregroundColor(isHoveringFullscreen ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
-                                isHoveringZen = hovering
+                                isHoveringFullscreen = hovering
                                 isHoveringBottomNav = hovering
                                 if hovering {
                                     NSCursor.pointingHand.push()
@@ -586,10 +471,10 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-
+                            
                             Text("•")
-                                .foregroundColor(.gray)
-
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
                             Button(action: {
                                 createNewEntry()
                             }) {
@@ -597,7 +482,7 @@ struct ContentView: View {
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? .black : .gray)
+                            .foregroundColor(isHoveringNewEntry ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 isHoveringNewEntry = hovering
                                 isHoveringBottomNav = hovering
@@ -607,10 +492,33 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-
+                            
                             Text("•")
-                                .foregroundColor(.gray)
-
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            // Theme toggle button
+                            Button(action: {
+                                themeManager.toggleTheme()
+                            }) {
+                                Image(systemName: themeManager.currentTheme.iconName)
+                                    .foregroundColor(isHoveringThemeToggle ? themeManager.currentTheme.iconColor : themeManager.currentTheme.secondaryTextColor)
+                                    // Fix for macOS 14+ API
+                                    .modifier(SymbolEffectIfAvailable())
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringThemeToggle = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
                             // Version history button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -618,7 +526,7 @@ struct ContentView: View {
                                 }
                             }) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundColor(isHoveringClock ? .black : .gray)
+                                    .foregroundColor(isHoveringClock ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -637,200 +545,180 @@ struct ContentView: View {
                             isHoveringBottomNav = hovering
                         }
                     }
-                        .padding()
-                        .background(Color.white)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure editor fills space
-                        .opacity(bottomNavOpacity)
-                        .onHover { hovering in
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    bottomNavOpacity = 1.0
-                                }
-                            } else if timerIsRunning {
-                                withAnimation(.easeIn(duration: 1.0)) {
-                                    bottomNavOpacity = 0.0
-                                }
-                            } // End VStack for bottom bar content
-                        } // End ZStack for main content area
-
-                    // Sidebar (moved back to the right)
-                    if showingSidebar {
-                        // Divider() // Removed this divider which appeared between content and sidebar
-
-                        VStack(spacing: 0) {
-                            // Header with folder selection
-                            Button(action: {
-                                // Safely unwrap the directory URL before using its path
-                                if let directoryURL = getDocumentsDirectory() {
-                                    if customDirectoryPath != nil {
-                                        // If a custom path is set (and valid), open it in Finder
-                                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
-                                    } else {
-                                        // If using the default path, allow selecting a custom one
-                                        selectCustomDirectory()
-                                    }
-                                } else {
-                                     // This case should ideally not happen if logic is correct,
-                                     // but as a fallback, allow selecting a custom directory.
-                                     print("Error: Could not get directory URL for Finder action.")
-                                     selectCustomDirectory()
-                                }
-                            }) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack(spacing: 4) {
-                                            Text("History")
-                                                .font(.system(size: 13))
-                                                .foregroundColor(isHoveringHistory ? .black : .secondary)
-                                            Image(systemName: "arrow.up.right")
-                                                .font(.system(size: 10))
-                                                .foregroundColor(isHoveringHistory ? .black : .secondary)
-                                        }
-                                        // Display the current directory path, handling potential nil from initial load failure
-                                        Text(getDocumentsDirectory()?.path ?? "Default Location")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-
-                                    // Add folder icon button
-                                    if customDirectoryPath != nil {
-                                        Button(action: resetToDefaultDirectory) {
-                                            Image(systemName: "folder.badge.minus")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .help("Reset to default location")
-                                    } else {
-                                        Button(action: selectCustomDirectory) {
-                                            Image(systemName: "folder.badge.plus")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .help("Choose custom folder location")
-                                    }
-                                }
+                    .padding()
+                    .background(themeManager.currentTheme.backgroundColor)
+                    .opacity(bottomNavOpacity)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                        if hovering {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                bottomNavOpacity = 1.0
                             }
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .onHover { hovering in
-                                isHoveringHistory = hovering
+                        } else if timerIsRunning {
+                            withAnimation(.easeIn(duration: 1.0)) {
+                                bottomNavOpacity = 0.0
                             }
-
-                            Divider()
-
-                            // Entries List
-                            ScrollView {
-                                LazyVStack(spacing: 0) {
-                                    ForEach(entries) { entry in
-                                        Button(action: {
-                                            if selectedEntryId != entry.id {
-                                                // Save current entry before switching
-                                                if let currentId = selectedEntryId,
-                                                   let currentEntry = entries.first(where: { $0.id == currentId }) {
-                                                    saveEntry(entry: currentEntry)
-                                                }
-
-                                                selectedEntryId = entry.id
-                                                loadEntry(entry: entry)
-                                            }
-                                        }) {
-                                            HStack {
-                                                VStack(alignment: .leading, spacing: 4) {
-                                                    Text(entry.previewText)
-                                                        .font(.system(size: 13))
-                                                        .lineLimit(1)
-                                                        .foregroundColor(.primary)
-                                                    Text(entry.date)
-                                                        .font(.system(size: 12))
-                                                        .foregroundColor(.secondary)
-                                                }
-                                                Spacer()
-
-                                                // Trash icon that appears on hover
-                                                if hoveredEntryId == entry.id {
-                                                    Button(action: {
-                                                        deleteEntry(entry: entry)
-                                                    }) {
-                                                        Image(systemName: "trash")
-                                                            .font(.system(size: 11))
-                                                            .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                                    }
-                                                    .buttonStyle(.plain)
-                                                    .onHover { hovering in
-                                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                                            hoveredTrashId = hovering ? entry.id : nil
-                                                        }
-                                                        if hovering {
-                                                            NSCursor.pointingHand.push()
-                                                        } else {
-                                                            NSCursor.pop()
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.horizontal, 16)
-                                            .padding(.vertical, 8)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 4)
-                                                    .fill(backgroundColor(for: entry))
-                                            )
-                                            .padding(.horizontal, 4) // Add slight horizontal padding for the background highlight
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
-                                        .contentShape(Rectangle()) // Ensure the whole area is clickable
-                                        .onHover { hovering in
-                                            withAnimation(.easeInOut(duration: 0.1)) { // Faster hover animation
-                                                hoveredEntryId = hovering ? entry.id : nil
-                                            }
-                                        }
-                                        .onAppear {
-                                            NSCursor.pop()  // Reset cursor when button appears
-                                        }
-                                        .help("Click to select this entry")  // Add tooltip
-
-                                        if entry.id != entries.last?.id {
-                                            Divider()
-                                        }
-                                    }
-                                }
-                            }
-                            .scrollIndicators(.never)
                         }
-                        .frame(width: 200)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .transition(.move(edge: .trailing)) // Ensure transition is from the right
-                    } // End if showingSidebar
-                } // End HStack for standard view content + sidebar
-                .frame(maxWidth: .infinity, maxHeight: .infinity) // Make HStack fill the space
-            } // End if !isZenMode
-
-            // Zen Mode View Overlay
-            if isZenMode {
-                ZenModeView(
-                    currentLine: $currentLine,
-                    previousLines: $previousLines,
-                    text: $text, // Pass the main text binding
-                    selectedFont: $selectedFont,
-                    fontSize: $fontSize,
-                    timeRemaining: $timeRemaining,
-                    timerIsRunning: $timerIsRunning,
-                    isZenMode: $isZenMode
-                )
-                .transition(.opacity.combined(with: .scale(scale: 1.05))) // Transition for Zen view
+                    }
+                }
             }
-        } // End Top level ZStack
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure ZStack fills the window
+            
+            // Right sidebar
+            if showingSidebar {
+                Divider()
+                    .background(themeManager.currentTheme.secondaryTextColor.opacity(0.2))
+                
+                VStack(spacing: 0) {
+                    // Header
+                    Button(action: {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                    }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) {
+                                    Text("History")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                                }
+                                Text(getDocumentsDirectory().path)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(isHoveringHistory ? themeManager.currentTheme.hoverColor : .clear)
+                    .onHover { hovering in
+                        isHoveringHistory = hovering
+                    }
+                    
+                    Divider()
+                        .background(themeManager.currentTheme.secondaryTextColor.opacity(0.2))
+                    
+                    // Entries List
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(entries) { entry in
+                                Button(action: {
+                                    if selectedEntryId != entry.id {
+                                        // Save current entry before switching
+                                        if let currentId = selectedEntryId,
+                                           let currentEntry = entries.first(where: { $0.id == currentId }) {
+                                            saveEntry(entry: currentEntry)
+                                        }
+                                        
+                                        selectedEntryId = entry.id
+                                        loadEntry(entry: entry)
+                                    }
+                                }) {
+                                    HStack(alignment: .top) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack {
+                                                Text(entry.previewText)
+                                                    .font(.system(size: 13))
+                                                    .lineLimit(1)
+                                                    .foregroundColor(themeManager.currentTheme.textColor)
+                                                
+                                                Spacer()
+                                                
+                                                // Export/Trash icons that appear on hover
+                                                if hoveredEntryId == entry.id {
+                                                    HStack(spacing: 8) {
+                                                        // Export PDF button
+                                                        Button(action: {
+                                                            exportEntryAsPDF(entry: entry)
+                                                        }) {
+                                                            Image(systemName: "arrow.down.circle")
+                                                                .font(.system(size: 11))
+                                                                .foregroundColor(hoveredExportId == entry.id ? 
+                                                                    themeManager.currentTheme.textColor : 
+                                                                    themeManager.currentTheme.secondaryTextColor)
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        .help("Export entry as PDF")
+                                                        .onHover { hovering in
+                                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                                hoveredExportId = hovering ? entry.id : nil
+                                                            }
+                                                            if hovering {
+                                                                NSCursor.pointingHand.push()
+                                                            } else {
+                                                                NSCursor.pop()
+                                                            }
+                                                        }
+                                                        
+                                                        // Trash icon
+                                                        Button(action: {
+                                                            deleteEntry(entry: entry)
+                                                        }) {
+                                                            Image(systemName: "trash")
+                                                                .font(.system(size: 11))
+                                                                .foregroundColor(hoveredTrashId == entry.id ? .red : themeManager.currentTheme.secondaryTextColor)
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        .onHover { hovering in
+                                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                                hoveredTrashId = hovering ? entry.id : nil
+                                                            }
+                                                            if hovering {
+                                                                NSCursor.pointingHand.push()
+                                                            } else {
+                                                                NSCursor.pop()
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            Text(entry.date)
+                                                .font(.system(size: 12))
+                                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(backgroundColor(for: entry))
+                                    )
+                                    .padding(.horizontal, 4) // Add slight horizontal padding for the background highlight
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .contentShape(Rectangle()) // Ensure the whole area is clickable
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: 0.1)) { // Faster hover animation
+                                        hoveredEntryId = hovering ? entry.id : nil
+                                    }
+                                }
+                                .onAppear {
+                                    NSCursor.pop()  // Reset cursor when button appears
+                                }
+                                .help("Click to select this entry")  // Add tooltip
+
+                                if entry.id != entries.last?.id {
+                                    Divider()
+                                }
+                            }
+                        }
+                    }
+                    .scrollIndicators(.never)
+                }
+                .frame(width: 200)
+                .background(themeManager.currentTheme.sidebarColor)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minWidth: 1100, minHeight: 600)
-        .animation(.easeInOut(duration: 0.3), value: isZenMode) // Animate Zen Mode changes
-        .animation(.easeInOut(duration: 0.2), value: showingSidebar) // Keep sidebar animation separate
-        .preferredColorScheme(.light)
+        .animation(.easeInOut(duration: 0.2), value: showingSidebar)
+        .environmentObject(themeManager)
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
@@ -949,11 +837,11 @@ struct ContentView: View {
 
     private func backgroundColor(for entry: HumanEntry) -> Color {
         if entry.id == selectedEntryId {
-            return Color.gray.opacity(0.15) // Slightly stronger selection highlight
+            return themeManager.currentTheme.hoverColor
         } else if entry.id == hoveredEntryId {
-            return Color.gray.opacity(0.08) // Slightly stronger hover state
+            return themeManager.currentTheme.subtleHoverColor
         } else {
-            return Color.clear
+            return .clear
         }
     }
 
@@ -1155,7 +1043,177 @@ struct ContentView: View {
             print("Error deleting file: \(error)")
         }
     }
-} // End ContentView struct
+    
+    // Extract a title from entry content for PDF export
+    private func extractTitleFromContent(_ content: String, date: String) -> String {
+        // Clean up content by removing leading/trailing whitespace and newlines
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // If content is empty, just use the date
+        if trimmedContent.isEmpty {
+            return "Entry \(date)"
+        }
+        
+        // Split content into words, ignoring newlines and removing punctuation
+        let words = trimmedContent
+            .replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .map { word in
+                word.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:\"'()[]{}<>"))
+                    .lowercased()
+            }
+            .filter { !$0.isEmpty }
+        
+        // If we have at least 4 words, use them
+        if words.count >= 4 {
+            return "\(words[0])-\(words[1])-\(words[2])-\(words[3])"
+        }
+        
+        // If we have fewer than 4 words, use what we have
+        if !words.isEmpty {
+            return words.joined(separator: "-")
+        }
+        
+        // Fallback to date if no words found
+        return "Entry \(date)"
+    }
+    
+    private func exportEntryAsPDF(entry: HumanEntry) {
+        // First make sure the current entry is saved
+        if selectedEntryId == entry.id {
+            saveEntry(entry: entry)
+        }
+        
+        // Get entry content
+        let documentsDirectory = getDocumentsDirectory()
+        let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+        
+        do {
+            // Read the content of the entry
+            let entryContent = try String(contentsOf: fileURL, encoding: .utf8)
+            
+            // Extract a title from the entry content and add .pdf extension
+            let suggestedFilename = extractTitleFromContent(entryContent, date: entry.date) + ".pdf"
+            
+            // Create save panel
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [UTType.pdf]
+            savePanel.nameFieldStringValue = suggestedFilename
+            savePanel.isExtensionHidden = false  // Make sure extension is visible
+            
+            // Show save dialog
+            if savePanel.runModal() == .OK, let url = savePanel.url {
+                // Create PDF data
+                if let pdfData = createPDFFromText(text: entryContent) {
+                    try pdfData.write(to: url)
+                    print("Successfully exported PDF to: \(url.path)")
+                }
+            }
+        } catch {
+            print("Error in PDF export: \(error)")
+        }
+    }
+    
+    private func createPDFFromText(text: String) -> Data? {
+        // Letter size page dimensions
+        let pageWidth: CGFloat = 612.0  // 8.5 x 72
+        let pageHeight: CGFloat = 792.0 // 11 x 72
+        let margin: CGFloat = 72.0      // 1-inch margins
+        
+        // Calculate content area
+        let contentRect = CGRect(
+            x: margin,
+            y: margin,
+            width: pageWidth - (margin * 2),
+            height: pageHeight - (margin * 2)
+        )
+        
+        // Create PDF data container
+        let pdfData = NSMutableData()
+        
+        // Configure text formatting attributes
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineHeight
+        
+        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0),
+            .paragraphStyle: paragraphStyle
+        ]
+        
+        // Trim the initial newlines before creating the PDF
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Create the attributed string with formatting
+        let attributedString = NSAttributedString(string: trimmedText, attributes: textAttributes)
+        
+        // Create a Core Text framesetter for text layout
+        let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+        
+        // Create a PDF context with the data consumer
+        guard let pdfContext = CGContext(consumer: CGDataConsumer(data: pdfData as CFMutableData)!, mediaBox: nil, nil) else {
+            print("Failed to create PDF context")
+            return nil
+        }
+        
+        // Track position within text
+        var currentRange = CFRange(location: 0, length: 0)
+        var pageIndex = 0
+        
+        // Create a path for the text frame
+        let framePath = CGMutablePath()
+        framePath.addRect(contentRect)
+        
+        // Continue creating pages until all text is processed
+        while currentRange.location < attributedString.length {
+            // Begin a new PDF page
+            pdfContext.beginPage(mediaBox: nil)
+            
+            // Fill the page with white background
+            pdfContext.setFillColor(NSColor.white.cgColor)
+            pdfContext.fill(CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
+            
+            // Create a frame for this page's text
+            let frame = CTFramesetterCreateFrame(
+                framesetter, 
+                currentRange, 
+                framePath, 
+                nil
+            )
+            
+            // Draw the text frame
+            CTFrameDraw(frame, pdfContext)
+            
+            // Get the range of text that was actually displayed in this frame
+            let visibleRange = CTFrameGetVisibleStringRange(frame)
+            
+            // Move to the next block of text for the next page
+            currentRange.location += visibleRange.length
+            
+            // Finish the page
+            pdfContext.endPage()
+            pageIndex += 1
+            
+            // Safety check - don't allow infinite loops
+            if pageIndex > 1000 {
+                print("Safety limit reached - stopping PDF generation")
+                break
+            }
+        }
+        
+        // Finalize the PDF document
+        pdfContext.closePDF()
+        
+        return pdfData as Data
+    }
+}
+
+// Helper function to calculate line height
+func getLineHeight(font: NSFont) -> CGFloat {
+    return font.ascender - font.descender + font.leading
+}
 
 // MARK: - Extensions
 
@@ -1173,7 +1231,8 @@ extension NSView {
         return nil
     }
 
-    // findSubview needs to be here too
+// Add helper extension for finding subviews of a specific type
+extension NSView {
     func findSubview<T: NSView>(ofType type: T.Type) -> T? {
         if let typedSelf = self as? T {
             return typedSelf
@@ -1187,12 +1246,15 @@ extension NSView {
     }
 }
 
-// Helper extension to get default line height
-extension NSFont {
-    func defaultLineHeight() -> CGFloat {
-        // Use layoutManager to calculate line height for the font
-        let layoutManager = NSLayoutManager()
-        return layoutManager.defaultLineHeight(for: self)
+// Helper view modifier for macOS 14+ symbolEffect
+import SwiftUI
+struct SymbolEffectIfAvailable: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content.contentTransition(.symbolEffect(.replace.downUp.byLayer))
+        } else {
+            content // fallback: no transition
+        }
     }
 }
 

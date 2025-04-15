@@ -9,6 +9,7 @@ struct ZenModeView: View {
     @Binding var timeRemaining: Int
     @Binding var timerIsRunning: Bool
     @Binding var isZenMode: Bool // To allow exiting from within? (Maybe not needed)
+    @Environment(\.colorScheme) var colorScheme
 
     // State for the temporary prompt
     @State private var showZenPrompt: Bool = true
@@ -30,8 +31,10 @@ struct ZenModeView: View {
 
     var body: some View {
         ZStack { // Use ZStack to overlay the prompt
-            Color.white
+            // Background with animated transition
+            Color(colorScheme == .light ? .white : .black)
                 .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.3), value: colorScheme)
 
             // Main content VStack
             VStack {
@@ -41,7 +44,9 @@ struct ZenModeView: View {
                     .font(.custom(selectedFont, size: zenFontSize))
                     .multilineTextAlignment(.center)
                     .textFieldStyle(PlainTextFieldStyle())
-                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                    .foregroundColor(colorScheme == .light ? 
+                        Color(red: 0.20, green: 0.20, blue: 0.20) : 
+                        Color(red: 0.90, green: 0.90, blue: 0.90))
                     .padding(.horizontal, 40) // Add some horizontal padding
                     .onSubmit {
                         // When Enter is pressed
@@ -54,6 +59,7 @@ struct ZenModeView: View {
                         text = previousLines.joined(separator: "\n") + (previousLines.isEmpty ? "" : "\n")
                         currentLine = "" // Clear for the next line
                     }
+                    .animation(.easeInOut(duration: 0.3), value: colorScheme)
 
                 Spacer()
 
@@ -61,8 +67,11 @@ struct ZenModeView: View {
                 if timerIsRunning || timeRemaining != 900 { // Show if running or not at default
                     Text(timerButtonTitle)
                         .font(.system(size: 18)) // Larger timer size
-                        .foregroundColor(.gray.opacity(0.8))
+                        .foregroundColor(colorScheme == .light ? 
+                            .gray.opacity(0.8) : 
+                            .gray.opacity(0.6))
                         .padding(.bottom, 30) // More padding from bottom
+                        .animation(.easeInOut(duration: 0.3), value: colorScheme)
                 }
             } // End VStack
 
@@ -70,9 +79,12 @@ struct ZenModeView: View {
             if showZenPrompt {
                 Text("Zen Mode. Just write.")
                     .font(.system(size: 24, weight: .light))
-                    .foregroundColor(.gray.opacity(0.6))
+                    .foregroundColor(colorScheme == .light ? 
+                        .gray.opacity(0.6) : 
+                        .gray.opacity(0.5))
                     .transition(.opacity.animation(.easeOut(duration: 0.5))) // Fade transition
                     .allowsHitTesting(false) // Prevent prompt from blocking TextField
+                    .animation(.easeInOut(duration: 0.3), value: colorScheme)
             }
 
             // Invisible button to handle Escape key press
