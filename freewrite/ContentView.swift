@@ -12,7 +12,9 @@ import UniformTypeIdentifiers
 import PDFKit
 import CoreGraphics
 import Foundation
+import Combine 
 
+@available(macOS 13.5, *)
 struct HumanEntry: Identifiable {
     let id: UUID
     let date: String
@@ -204,7 +206,7 @@ struct ContentView: View {
                 let filename = url.lastPathComponent
                 let id = UUID()
                 let date = "" // You can parse from filename if needed
-                let previewText = (try? String(contentsOf: url))?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+                let previewText = (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
                 return HumanEntry(id: id, date: date, filename: filename, previewText: previewText)
             }
             entries = loadedEntries
@@ -228,37 +230,50 @@ struct ContentView: View {
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 0.3), value: themeManager.currentTheme)
                 
-                TextEditor(text: Binding(
-                    get: { text },
-                    set: { newValue in
-                        // Ensure the text always starts with two newlines
-                        if !newValue.hasPrefix("\n\n") {
-                            text = "\n\n" + newValue.trimmingCharacters(in: CharacterSet.newlines)
-                        } else {
-                            text = newValue
-                        }
-                    }
-                ))
-                    .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(themeManager.currentTheme.textColor)
-                    .scrollContentBackground(.hidden)
-                    .scrollIndicators(.never)
-                    .lineSpacing(lineHeight)
-                    .frame(maxWidth: 650)
-                    .id("\(selectedFont)-\(fontSize)-\(themeManager.currentTheme.rawValue)")
-                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                    .ignoresSafeArea()
-                    .overlay(
-                        ZStack(alignment: .topLeading) {
-                            if text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
-                                Text(placeholderText)
-                                    .font(.custom(selectedFont, size: fontSize))
-                                    .foregroundColor(themeManager.currentTheme.secondaryTextColor.opacity(0.5))
-                                    .allowsHitTesting(false)
-                                    .offset(x: 5, y: placeholderOffset)
-                            }
-                        }, alignment: .topLeading
+                if isZenMode {
+                    ZenModeView(
+                        currentLine: $currentLine,
+                        previousLines: $previousLines,
+                        text: $text,
+                        selectedFont: $selectedFont,
+                        fontSize: $fontSize,
+                        timeRemaining: $timeRemaining,
+                        timerIsRunning: $timerIsRunning,
+                        isZenMode: $isZenMode
                     )
+                } else {
+                    TextEditor(text: Binding(
+                        get: { text },
+                        set: { newValue in
+                            // Ensure the text always starts with two newlines
+                            if !newValue.hasPrefix("\n\n") {
+                                text = "\n\n" + newValue.trimmingCharacters(in: CharacterSet.newlines)
+                            } else {
+                                text = newValue
+                            }
+                        }
+                    ))
+                        .font(.custom(selectedFont, size: fontSize))
+                        .foregroundColor(themeManager.currentTheme.textColor)
+                        .scrollContentBackground(.hidden)
+                        .scrollIndicators(.never)
+                        .lineSpacing(lineHeight)
+                        .frame(maxWidth: 650)
+                        .id("\(selectedFont)-\(fontSize)-\(themeManager.currentTheme.rawValue)")
+                        .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                        .ignoresSafeArea()
+                        .overlay(
+                            ZStack(alignment: .topLeading) {
+                                if text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
+                                    Text(placeholderText)
+                                        .font(.custom(selectedFont, size: fontSize))
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor.opacity(0.5))
+                                        .allowsHitTesting(false)
+                                        .offset(x: 5, y: placeholderOffset)
+                                }
+                            }, alignment: .topLeading
+                        )
+                }
                 
                 VStack {
                     Spacer()
@@ -538,6 +553,41 @@ struct ContentView: View {
                                 }
                             }
                             
+                            Text("•")
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                            
+                            // Add Zen Mode button
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    isZenMode.toggle()
+                                    if isZenMode {
+                                        // Hide bottom bar when entering Zen Mode
+                                        bottomNavOpacity = 0.0
+                                        // Hide sidebar if it's showing
+                                        showingSidebar = false
+                                    } else {
+                                        // Show bottom bar when exiting if not in timer mode
+                                        if !timerIsRunning {
+                                            bottomNavOpacity = 1.0
+                                        }
+                                    }
+                                }
+                            }) {
+                                Image(systemName: "infinity")
+                                    .foregroundColor(isHoveringZen ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringZen = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .help("Toggle Zen Mode")
+
                             Text("•")
                                 .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             

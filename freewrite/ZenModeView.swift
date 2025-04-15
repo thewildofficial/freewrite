@@ -112,26 +112,34 @@ struct ZenModeView: View {
     }
 }
 
-// Add a preview provider if needed (optional)
-#Preview {
-    // Need to provide mock bindings for preview
-    @State var mockLine = "This is the current line."
-    @State var mockPrevious: [String] = ["Line 1", "Line 2"]
-    @State var mockText = "Line 1\nLine 2\nThis is the current line."
-    @State var mockFont = "Lato-Regular"
-    @State var mockFontSize: CGFloat = 18
-    @State var mockTime = 850
-    @State var mockIsRunning = true
-    @State var mockIsZen = true
-
-    return ZenModeView(
-        currentLine: $mockLine,
-        previousLines: $mockPrevious,
-        text: $mockText,
-        selectedFont: $mockFont,
-        fontSize: $mockFontSize,
-        timeRemaining: $mockTime,
-        timerIsRunning: $mockIsRunning,
-        isZenMode: $mockIsZen
-    )
+// Preview provider
+struct ZenModeView_Previews: PreviewProvider {
+    static var previews: some View {
+        PreviewWrapper()
+    }
+    
+    // Wrapper to hold our state
+    private struct PreviewWrapper: View {
+        @State var mockLine = "This is the current line."
+        @State var mockPrevious: [String] = ["Line 1", "Line 2"]
+        @State var mockText = "Line 1\nLine 2\nThis is the current line."
+        @State var mockFont = "Lato-Regular"
+        @State var mockFontSize: CGFloat = 18
+        @State var mockTime = 850
+        @State var mockIsRunning = true
+        @State var mockIsZen = true
+        
+        var body: some View {
+            ZenModeView(
+                currentLine: $mockLine,
+                previousLines: $mockPrevious,
+                text: $mockText,
+                selectedFont: $mockFont,
+                fontSize: $mockFontSize,
+                timeRemaining: $mockTime,
+                timerIsRunning: $mockIsRunning,
+                isZenMode: $mockIsZen
+            )
+        }
+    }
 }
