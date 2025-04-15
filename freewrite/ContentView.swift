@@ -10,6 +10,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import PDFKit
+import CoreGraphics
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -82,8 +83,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
-    @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+    @EnvironmentObject var themeManager: ThemeManager
+    
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -148,13 +150,6 @@ struct ContentView: View {
 
     Here's my journal entry:
     """
-    
-    // Initialize with saved theme preference if available
-    init() {
-        // Load saved color scheme preference
-        let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
-        _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
-    }
     
     // Modify getDocumentsDirectory to use cached value
     private func getDocumentsDirectory() -> URL {
@@ -351,9 +346,9 @@ struct ContentView: View {
     
     var timerColor: Color {
         if timerIsRunning {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .gray.opacity(0.8)
+            return isHoveringTimer ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor
         } else {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : (colorScheme == .light ? .gray : .gray.opacity(0.8))
+            return isHoveringTimer ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor.opacity(0.8)
         }
     }
     
@@ -372,26 +367,16 @@ struct ContentView: View {
         return fontSize / 2
     }
     
-    // Add a color utility computed property
-    var popoverBackgroundColor: Color {
-        return colorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
-    }
-    
-    var popoverTextColor: Color {
-        return colorScheme == .light ? Color.primary : Color.white
-    }
-    
     var body: some View {
-        let buttonBackground = colorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
-        let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
-        let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
         HStack(spacing: 0) {
             // Main content
             ZStack {
-                Color(colorScheme == .light ? .white : .black)
+                // Use a Rectangle for the background to ensure full coverage and smooth animation
+                themeManager.currentTheme.backgroundColor
                     .ignoresSafeArea()
+                    .animation(.easeInOut(duration: 0.3), value: themeManager.currentTheme)
                 
                 TextEditor(text: Binding(
                     get: { text },
@@ -404,29 +389,21 @@ struct ContentView: View {
                         }
                     }
                 ))
-                    .background(Color(colorScheme == .light ? .white : .black))
                     .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                    .foregroundColor(themeManager.currentTheme.textColor)
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
+                    .id("\(selectedFont)-\(fontSize)-\(themeManager.currentTheme.rawValue)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
-                    .colorScheme(colorScheme)
-                    .onAppear {
-                        placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
-                        // Removed findSubview code which was causing errors
-                    }
                     .overlay(
                         ZStack(alignment: .topLeading) {
                             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
-                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                    // .padding(.top, 8)
-                                    // .padding(.leading, 8)
+                                    .foregroundColor(themeManager.currentTheme.secondaryTextColor.opacity(0.5))
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: placeholderOffset)
                             }
@@ -445,7 +422,7 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringSize ? textHoverColor : textColor)
+                            .foregroundColor(isHoveringSize ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 isHoveringSize = hovering
                                 isHoveringBottomNav = hovering
@@ -457,14 +434,14 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button("Lato") {
                                 selectedFont = "Lato-Regular"
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
+                            .foregroundColor(hoveredFont == "Lato" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Lato" : nil
                                 isHoveringBottomNav = hovering
@@ -476,14 +453,14 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button("Arial") {
                                 selectedFont = "Arial"
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
+                            .foregroundColor(hoveredFont == "Arial" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Arial" : nil
                                 isHoveringBottomNav = hovering
@@ -495,14 +472,14 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button("System") {
                                 selectedFont = ".AppleSystemUIFont"
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
+                            .foregroundColor(hoveredFont == "System" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "System" : nil
                                 isHoveringBottomNav = hovering
@@ -514,14 +491,14 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button("Serif") {
                                 selectedFont = "Times New Roman"
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
+                            .foregroundColor(hoveredFont == "Serif" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Serif" : nil
                                 isHoveringBottomNav = hovering
@@ -533,7 +510,7 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button(randomButtonTitle) {
                                 if let randomFont = availableFonts.randomElement() {
@@ -542,7 +519,7 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
+                            .foregroundColor(hoveredFont == "Random" ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Random" : nil
                                 isHoveringBottomNav = hovering
@@ -606,13 +583,13 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button("Chat") {
                                 showingChatMenu = true
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringChat ? textHoverColor : textColor)
+                            .foregroundColor(isHoveringChat ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 isHoveringChat = hovering
                                 isHoveringBottomNav = hovering
@@ -626,21 +603,21 @@ struct ContentView: View {
                                 if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
                                     Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
                                         .font(.system(size: 14))
-                                        .foregroundColor(popoverTextColor)
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                         .frame(width: 250)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(popoverBackgroundColor)
+                                        .background(themeManager.currentTheme.backgroundColor)
                                         .cornerRadius(8)
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else if text.count < 350 {
                                     Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
                                         .font(.system(size: 14))
-                                        .foregroundColor(popoverTextColor)
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                         .frame(width: 250)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(popoverBackgroundColor)
+                                        .background(themeManager.currentTheme.backgroundColor)
                                         .cornerRadius(8)
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else {
@@ -655,7 +632,7 @@ struct ContentView: View {
                                                 .padding(.vertical, 8)
                                         }
                                         .buttonStyle(.plain)
-                                        .foregroundColor(popoverTextColor)
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                         
                                         Divider()
                                         
@@ -669,17 +646,17 @@ struct ContentView: View {
                                                 .padding(.vertical, 8)
                                         }
                                         .buttonStyle(.plain)
-                                        .foregroundColor(popoverTextColor)
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                     }
                                     .frame(width: 120)
-                                    .background(popoverBackgroundColor)
+                                    .background(themeManager.currentTheme.backgroundColor)
                                     .cornerRadius(8)
                                     .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 }
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button(isFullscreen ? "Minimize" : "Fullscreen") {
                                 if let window = NSApplication.shared.windows.first {
@@ -687,7 +664,7 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringFullscreen ? textHoverColor : textColor)
+                            .foregroundColor(isHoveringFullscreen ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 isHoveringFullscreen = hovering
                                 isHoveringBottomNav = hovering
@@ -699,7 +676,7 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             Button(action: {
                                 createNewEntry()
@@ -708,7 +685,7 @@ struct ContentView: View {
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
+                            .foregroundColor(isHoveringNewEntry ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             .onHover { hovering in
                                 isHoveringNewEntry = hovering
                                 isHoveringBottomNav = hovering
@@ -720,16 +697,16 @@ struct ContentView: View {
                             }
                             
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             // Theme toggle button
                             Button(action: {
-                                colorScheme = colorScheme == .light ? .dark : .light
-                                // Save preference
-                                UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                                themeManager.toggleTheme()
                             }) {
-                                Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                                    .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
+                                Image(systemName: themeManager.currentTheme.iconName)
+                                    .foregroundColor(isHoveringThemeToggle ? themeManager.currentTheme.iconColor : themeManager.currentTheme.secondaryTextColor)
+                                    // Fix for macOS 14+ API
+                                    .modifier(SymbolEffectIfAvailable())
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -743,7 +720,7 @@ struct ContentView: View {
                             }
 
                             Text("•")
-                                .foregroundColor(.gray)
+                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                             
                             // Version history button
                             Button(action: {
@@ -752,7 +729,7 @@ struct ContentView: View {
                                 }
                             }) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundColor(isHoveringClock ? textHoverColor : textColor)
+                                    .foregroundColor(isHoveringClock ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -772,7 +749,7 @@ struct ContentView: View {
                         }
                     }
                     .padding()
-                    .background(Color(colorScheme == .light ? .white : .black))
+                    .background(themeManager.currentTheme.backgroundColor)
                     .opacity(bottomNavOpacity)
                     .onHover { hovering in
                         isHoveringBottomNav = hovering
@@ -792,6 +769,7 @@ struct ContentView: View {
             // Right sidebar
             if showingSidebar {
                 Divider()
+                    .background(themeManager.currentTheme.secondaryTextColor.opacity(0.2))
                 
                 VStack(spacing: 0) {
                     // Header
@@ -803,14 +781,14 @@ struct ContentView: View {
                                 HStack(spacing: 4) {
                                     Text("History")
                                         .font(.system(size: 13))
-                                        .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
+                                        .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                                     Image(systemName: "arrow.up.right")
                                         .font(.system(size: 10))
-                                        .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
+                                        .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                                 }
                                 Text(getDocumentsDirectory().path)
                                     .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                     .lineLimit(1)
                             }
                             Spacer()
@@ -819,11 +797,13 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    .background(isHoveringHistory ? themeManager.currentTheme.hoverColor : .clear)
                     .onHover { hovering in
                         isHoveringHistory = hovering
                     }
                     
                     Divider()
+                        .background(themeManager.currentTheme.secondaryTextColor.opacity(0.2))
                     
                     // Entries List
                     ScrollView {
@@ -847,7 +827,7 @@ struct ContentView: View {
                                                 Text(entry.previewText)
                                                     .font(.system(size: 13))
                                                     .lineLimit(1)
-                                                    .foregroundColor(.primary)
+                                                    .foregroundColor(themeManager.currentTheme.textColor)
                                                 
                                                 Spacer()
                                                 
@@ -861,8 +841,8 @@ struct ContentView: View {
                                                             Image(systemName: "arrow.down.circle")
                                                                 .font(.system(size: 11))
                                                                 .foregroundColor(hoveredExportId == entry.id ? 
-                                                                    (colorScheme == .light ? .black : .white) : 
-                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
+                                                                    themeManager.currentTheme.textColor : 
+                                                                    themeManager.currentTheme.secondaryTextColor)
                                                         }
                                                         .buttonStyle(.plain)
                                                         .help("Export entry as PDF")
@@ -883,7 +863,7 @@ struct ContentView: View {
                                                         }) {
                                                             Image(systemName: "trash")
                                                                 .font(.system(size: 11))
-                                                                .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
+                                                                .foregroundColor(hoveredTrashId == entry.id ? .red : themeManager.currentTheme.secondaryTextColor)
                                                         }
                                                         .buttonStyle(.plain)
                                                         .onHover { hovering in
@@ -902,7 +882,7 @@ struct ContentView: View {
                                             
                                             Text(entry.date)
                                                 .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
+                                                .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                         }
                                     }
                                     .frame(maxWidth: .infinity)
@@ -934,12 +914,12 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                 }
                 .frame(width: 200)
-                .background(Color(colorScheme == .light ? .white : NSColor.black))
+                .background(themeManager.currentTheme.sidebarColor)
             }
         }
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.2), value: showingSidebar)
-        .preferredColorScheme(colorScheme)
+        .environmentObject(themeManager)
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
@@ -973,11 +953,11 @@ struct ContentView: View {
     
     private func backgroundColor(for entry: HumanEntry) -> Color {
         if entry.id == selectedEntryId {
-            return Color.gray.opacity(0.1)  // More subtle selection highlight
+            return themeManager.currentTheme.hoverColor
         } else if entry.id == hoveredEntryId {
-            return Color.gray.opacity(0.05)  // Even more subtle hover state
+            return themeManager.currentTheme.subtleHoverColor
         } else {
-            return Color.clear
+            return .clear
         }
     }
     
@@ -1300,6 +1280,18 @@ extension NSView {
             }
         }
         return nil
+    }
+}
+
+// Helper view modifier for macOS 14+ symbolEffect
+import SwiftUI
+struct SymbolEffectIfAvailable: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content.contentTransition(.symbolEffect(.replace.downUp.byLayer))
+        } else {
+            content // fallback: no transition
+        }
     }
 }
 
