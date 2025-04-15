@@ -11,6 +11,7 @@ import AppKit
 import UniformTypeIdentifiers
 import PDFKit
 import CoreGraphics
+import Foundation
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -118,26 +119,6 @@ struct ContentView: View {
     private let fileManager = FileManager.default
     private let saveTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
     
-    // Update cached documents directory to handle custom path
-    private var documentsDirectory: URL {
-        if let customPath = customDirectoryPath {
-            return URL(fileURLWithPath: customPath)
-        }
-        
-        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
-        
-        // Create Freewrite directory if it doesn't exist
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                print("Successfully created Freewrite directory")
-            } catch {
-                print("Error creating directory: \(error)")
-            }
-        }
-        return directory
-    }
-    
     // AI Prompts
     private let aiChatPrompt = "You are an AI assistant. The user has provided the following text. Please analyze it and provide helpful feedback, suggestions, or insights. Focus on clarity, flow, and potential areas for expansion or refinement."
     private let claudePrompt = "Analyze the following text and provide constructive feedback. Consider the writing style, clarity, potential improvements, and interesting themes or ideas present."
@@ -172,6 +153,70 @@ struct ContentView: View {
         return fontSize / 2
     }
     
+    // Add missing helper for randomButtonTitle
+    private var randomButtonTitle: String {
+        return currentRandomFont.isEmpty ? "Random" : currentRandomFont
+    }
+
+    // Add missing helper for timerButtonTitle
+    private var timerButtonTitle: String {
+        if timerIsRunning {
+            return formattedTime
+        } else {
+            return "Timer"
+        }
+    }
+
+    // Add missing getDocumentsDirectory helper
+    private func getDocumentsDirectory() -> URL? {
+        if let customPath = customDirectoryPath {
+            let url = URL(fileURLWithPath: customPath)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                return url
+            } else {
+                return nil
+            }
+        }
+        let defaultDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
+        var isDir: ObjCBool = false
+        if !FileManager.default.fileExists(atPath: defaultDir.path, isDirectory: &isDir) {
+            do {
+                try FileManager.default.createDirectory(at: defaultDir, withIntermediateDirectories: true)
+            } catch {
+                print("Error creating Freewrite directory: \(error)")
+                return nil
+            }
+        }
+        return defaultDir
+    }
+
+    // Add missing loadExistingEntries helper
+    private func loadExistingEntries() {
+        guard let directory = getDocumentsDirectory() else {
+            print("Invalid directory for loading entries.")
+            return
+        }
+        do {
+            let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let mdFiles = files.filter { $0.pathExtension == "md" }
+            let loadedEntries = mdFiles.compactMap { url -> HumanEntry? in
+                let filename = url.lastPathComponent
+                let id = UUID()
+                let date = "" // You can parse from filename if needed
+                let previewText = (try? String(contentsOf: url))?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+                return HumanEntry(id: id, date: date, filename: filename, previewText: previewText)
+            }
+            entries = loadedEntries
+            if let first = entries.first {
+                selectedEntryId = first.id
+                loadEntry(entry: first)
+            }
+        } catch {
+            print("Error loading entries: \(error)")
+        }
+    }
+
     var body: some View {
         let navHeight: CGFloat = 68
         
@@ -188,7 +233,7 @@ struct ContentView: View {
                     set: { newValue in
                         // Ensure the text always starts with two newlines
                         if !newValue.hasPrefix("\n\n") {
-                            text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
+                            text = "\n\n" + newValue.trimmingCharacters(in: CharacterSet.newlines)
                         } else {
                             text = newValue
                         }
@@ -205,7 +250,7 @@ struct ContentView: View {
                     .ignoresSafeArea()
                     .overlay(
                         ZStack(alignment: .topLeading) {
-                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
                                     .foregroundColor(themeManager.currentTheme.secondaryTextColor.opacity(0.5))
@@ -397,7 +442,7 @@ struct ContentView: View {
                                 }
                             }
                             .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
-                                if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
+                                if text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
                                     Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
                                         .font(.system(size: 14))
                                         .foregroundColor(themeManager.currentTheme.secondaryTextColor)
@@ -571,7 +616,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     // Header
                     Button(action: {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory()?.path ?? "")
                     }) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -583,7 +628,7 @@ struct ContentView: View {
                                         .font(.system(size: 10))
                                         .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                                 }
-                                Text(getDocumentsDirectory().path)
+                                Text(getDocumentsDirectory()?.path ?? "")
                                     .font(.system(size: 10))
                                     .foregroundColor(themeManager.currentTheme.secondaryTextColor)
                                     .lineLimit(1)
@@ -740,7 +785,7 @@ struct ContentView: View {
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
                 // Find the last non-empty line to be the current line
-                if let lastNonEmptyIndex = lines.lastIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                if let lastNonEmptyIndex = lines.lastIndex(where: { !$0.trimmingCharacters(in: CharacterSet.whitespaces).isEmpty }) {
                     currentLine = lines[lastNonEmptyIndex]
                     // Previous lines are everything before the last non-empty one, preserving empty lines between them
                     previousLines = Array(lines.prefix(lastNonEmptyIndex))
@@ -757,12 +802,12 @@ struct ContentView: View {
                 // Exiting Zen Mode
                 // Reconstruct the text from previousLines and the potentially modified currentLine
                 // Add current line back only if it's not just whitespace
-                let trimmedCurrentLine = currentLine.trimmingCharacters(in: .whitespaces)
+                let trimmedCurrentLine = currentLine.trimmingCharacters(in: CharacterSet.whitespaces)
                 let finalLines = previousLines + (trimmedCurrentLine.isEmpty ? [] : [currentLine])
 
                 // Reconstruct, ensuring at least the initial \n\n are present if the result isn't empty
                 var reconstructedText = finalLines.joined(separator: "\n")
-                if !reconstructedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !reconstructedText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
                     // If there's content, ensure it starts with \n\n
                     if !reconstructedText.hasPrefix("\n\n") {
                          if reconstructedText.hasPrefix("\n") {
@@ -866,7 +911,7 @@ struct ContentView: View {
             let content = try String(contentsOf: fileURL, encoding: .utf8)
             let preview = content
                 .replacingOccurrences(of: "\n", with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
 
             // Find and update the entry in the entries array
@@ -891,7 +936,7 @@ struct ContentView: View {
         if !textToSave.hasPrefix("\n\n") {
              if textToSave.hasPrefix("\n") {
                  textToSave = "\n" + textToSave
-             } else if !textToSave.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+             } else if !textToSave.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
                  // Only add prefix if there's actual content
                  textToSave = "\n\n" + textToSave
              } else {
@@ -925,7 +970,7 @@ struct ContentView: View {
                 if !loadedText.hasPrefix("\n\n") {
                      if loadedText.hasPrefix("\n") {
                          loadedText = "\n" + loadedText
-                     } else if !loadedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                     } else if !loadedText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
                          loadedText = "\n\n" + loadedText
                      } else {
                          loadedText = "\n\n"
@@ -973,20 +1018,20 @@ struct ContentView: View {
     }
 
     private func openChatGPT() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         let fullText = aiChatPrompt + "\n\n" + trimmedText
 
-        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
            let url = URL(string: "https://chat.openai.com/?m=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
     }
 
     private func openClaude() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         let fullText = claudePrompt + "\n\n" + trimmedText
 
-        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
            let url = URL(string: "https://claude.ai/new?q=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
@@ -1047,7 +1092,7 @@ struct ContentView: View {
     // Extract a title from entry content for PDF export
     private func extractTitleFromContent(_ content: String, date: String) -> String {
         // Clean up content by removing leading/trailing whitespace and newlines
-        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContent = content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         
         // If content is empty, just use the date
         if trimmedContent.isEmpty {
@@ -1087,11 +1132,11 @@ struct ContentView: View {
         
         // Get entry content
         let documentsDirectory = getDocumentsDirectory()
-        let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+        let fileURL = documentsDirectory?.appendingPathComponent(entry.filename)
         
         do {
             // Read the content of the entry
-            let entryContent = try String(contentsOf: fileURL, encoding: .utf8)
+            let entryContent = try String(contentsOf: fileURL!, encoding: .utf8)
             
             // Extract a title from the entry content and add .pdf extension
             let suggestedFilename = extractTitleFromContent(entryContent, date: entry.date) + ".pdf"
@@ -1144,7 +1189,7 @@ struct ContentView: View {
         ]
         
         // Trim the initial newlines before creating the PDF
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         
         // Create the attributed string with formatting
         let attributedString = NSAttributedString(string: trimmedText, attributes: textAttributes)
@@ -1230,6 +1275,7 @@ extension NSView {
         }
         return nil
     }
+}
 
 // Add helper extension for finding subviews of a specific type
 extension NSView {
@@ -1247,7 +1293,6 @@ extension NSView {
 }
 
 // Helper view modifier for macOS 14+ symbolEffect
-import SwiftUI
 struct SymbolEffectIfAvailable: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {
