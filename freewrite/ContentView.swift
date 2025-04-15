@@ -219,6 +219,19 @@ struct ContentView: View {
         }
     }
 
+    private func selectCustomDirectory() {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseDirectories = true
+        openPanel.canChooseFiles = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.prompt = "Select Folder"
+        
+        if openPanel.runModal() == .OK, let url = openPanel.url {
+            customDirectoryPath = url.path
+            loadExistingEntries()
+        }
+    }
+
     var body: some View {
         let navHeight: CGFloat = 68
         
@@ -664,36 +677,39 @@ struct ContentView: View {
                     .background(themeManager.currentTheme.secondaryTextColor.opacity(0.2))
                 
                 VStack(spacing: 0) {
-                    // Header
-                    Button(action: {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory()?.path ?? "")
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 4) {
-                                    Text("History")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
-                                    Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
-                                }
-                                Text(getDocumentsDirectory()?.path ?? "")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(themeManager.currentTheme.secondaryTextColor)
-                                    .lineLimit(1)
+                    // Header with folder selection
+                    HStack(spacing: 4) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 4) {
+                                Text("History")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(isHoveringHistory ? themeManager.currentTheme.textColor : themeManager.currentTheme.secondaryTextColor)
                             }
-                            Spacer()
+                            Button(action: {
+                                selectCustomDirectory()
+                            }) {
+                                HStack {
+                                    Text(getDocumentsDirectory()?.lastPathComponent ?? "Documents")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                        .lineLimit(1)
+                                    Image(systemName: "folder.badge.plus")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(themeManager.currentTheme.secondaryTextColor)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .help("Choose folder for entries")
                         }
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(isHoveringHistory ? themeManager.currentTheme.hoverColor : .clear)
                     .onHover { hovering in
                         isHoveringHistory = hovering
                     }
-                    
+
                     Divider()
                         .background(themeManager.currentTheme.secondaryTextColor.opacity(0.2))
                     
